@@ -26,7 +26,9 @@ import {
   Store, 
   CreditCard, 
   Phone, 
-  FileText
+  FileText,
+  BarChart3,
+  Percent
 } from 'lucide-react';
 
 // --- IMPORT FIREBASE ---
@@ -46,7 +48,6 @@ import {
   doc, 
   query, 
   onSnapshot, 
-  orderBy, 
   serverTimestamp 
 } from 'firebase/firestore';
 
@@ -67,8 +68,7 @@ try {
     isPreviewEnv = true;
   } else {
     // -----------------------------------------------------------
-    // KONFIGURASI VS CODE / LOCALHOST
-    // Silakan ganti bagian ini dengan Config dari Firebase Console Anda
+    // KONFIGURASI ASLI (SESUAI PERMINTAAN)
     // -----------------------------------------------------------
     firebaseConfig = {
       apiKey: "AIzaSyAmlZ0pBAlg32Oe-BNdvOiv5duMcZejJIo",
@@ -107,10 +107,14 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   
   // UI State
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'history' | 'vendor'
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'history' | 'vendor' | 'analytics'
 
   // Edit State
   const [editingTransaction, setEditingTransaction] = useState(null);
+  const [showSaldoModal, setShowSaldoModal] = useState(false);
+
+  // Search State for Dashboard
+  const [dashboardSearch, setDashboardSearch] = useState('');
 
   // --- EFFECT: AUTHENTICATION ---
   useEffect(() => {
@@ -230,7 +234,7 @@ export default function App() {
       });
     } catch (error) {
       console.error("Gagal menambah data:", error);
-      alert("Gagal menyimpan. Cek koneksi internet.");
+      // alert("Gagal menyimpan. Cek koneksi internet.");
     }
   };
 
@@ -249,7 +253,7 @@ export default function App() {
       setEditingTransaction(null);
     } catch (error) {
       console.error("Gagal update:", error);
-      alert("Gagal mengubah data.");
+      // alert("Gagal mengubah data.");
     }
   };
 
@@ -284,7 +288,7 @@ export default function App() {
         });
     } catch (error) {
         console.error("Gagal tambah vendor:", error);
-        alert("Gagal menyimpan vendor.");
+        // alert("Gagal menyimpan vendor.");
     }
   };
 
@@ -322,6 +326,19 @@ export default function App() {
       minimumFractionDigits: 0 
     }).format(amount);
   };
+
+  // --- HELPER: FILTERED TRANSACTIONS FOR DASHBOARD ---
+  const filteredDashboardTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      if (!dashboardSearch) return true;
+      const term = dashboardSearch.toLowerCase();
+      return (
+        (t.description && t.description.toLowerCase().includes(term)) ||
+        (t.vendorName && t.vendorName.toLowerCase().includes(term)) ||
+        (t.amount && t.amount.toString().includes(term))
+      );
+    }).slice(0, 5);
+  }, [transactions, dashboardSearch]);
 
   // --- RENDER LOADING STATE ---
   if (loading) {
@@ -378,6 +395,13 @@ export default function App() {
                 Dashboard
               </button>
               <button 
+                onClick={() => setCurrentView('analytics')}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${currentView === 'analytics' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:bg-white/40'}`}
+              >
+                <BarChart3 size={14} /> 
+                Analisis
+              </button>
+              <button 
                 onClick={() => setCurrentView('history')}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${currentView === 'history' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:bg-white/40'}`}
               >
@@ -423,7 +447,8 @@ export default function App() {
                 title="Total Saldo" 
                 amount={summary.balance} 
                 type="balance" 
-                formatIDR={formatIDR} 
+                formatIDR={formatIDR}
+                onAddInitialBalance={() => setShowSaldoModal(true)}
               />
               <SummaryCardGlass 
                 title="Pemasukan" 
@@ -452,20 +477,35 @@ export default function App() {
               {/* Right Column: Recent Transactions */}
               <div className="lg:col-span-8">
                 <div className="bg-white/40 backdrop-blur-xl rounded-3xl shadow-xl border border-white/50 overflow-hidden relative">
-                  <div className="p-6 border-b border-white/30 flex justify-between items-center bg-white/20">
+                  <div className="p-6 border-b border-white/30 flex flex-col md:flex-row justify-between items-start md:items-center bg-white/20 gap-3">
                     <h2 className="font-bold text-gray-800 flex items-center gap-2.5 text-lg">
                       Transaksi Terkini
                     </h2>
-                    <button 
-                      onClick={() => setCurrentView('history')}
-                      className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 px-3 py-1.5 rounded-lg transition-colors border border-indigo-100"
-                    >
-                      Lihat Semua
-                    </button>
+                    
+                    <div className="flex items-center gap-2 w-full md:w-auto">
+                        {/* Search in Dashboard */}
+                        <div className="relative group flex-1 md:flex-none">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors"/>
+                            <input 
+                                type="text" 
+                                placeholder="Cari..." 
+                                value={dashboardSearch}
+                                onChange={(e) => setDashboardSearch(e.target.value)}
+                                className="w-full md:w-40 pl-9 pr-3 py-1.5 bg-white/50 border border-white/60 rounded-xl text-xs font-medium focus:bg-white focus:ring-2 focus:ring-indigo-400/20 outline-none transition-all"
+                            />
+                        </div>
+
+                        <button 
+                        onClick={() => setCurrentView('history')}
+                        className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 px-3 py-1.5 rounded-lg transition-colors border border-indigo-100 whitespace-nowrap"
+                        >
+                        Lihat Semua
+                        </button>
+                    </div>
                   </div>
 
                   <div className="max-h-[500px] overflow-y-auto custom-scrollbar p-3 space-y-3">
-                    {transactions.slice(0, 5).map((t) => (
+                    {filteredDashboardTransactions.map((t) => (
                       <TransactionItem 
                         key={t.id} 
                         t={t} 
@@ -474,9 +514,9 @@ export default function App() {
                         onEdit={setEditingTransaction}
                       />
                     ))}
-                    {transactions.length === 0 && (
+                    {filteredDashboardTransactions.length === 0 && (
                       <div className="py-12 text-center text-gray-400 text-sm">
-                        Belum ada transaksi
+                        {dashboardSearch ? 'Tidak ada data yang cocok.' : 'Belum ada transaksi'}
                       </div>
                     )}
                   </div>
@@ -486,7 +526,15 @@ export default function App() {
           </>
         )}
 
-        {/* === VIEW 2: FULL HISTORY === */}
+        {/* === VIEW 2: ANALYTICS === */}
+        {currentView === 'analytics' && (
+           <AnalyticsView 
+              transactions={transactions} 
+              formatIDR={formatIDR}
+           />
+        )}
+
+        {/* === VIEW 3: FULL HISTORY === */}
         {currentView === 'history' && (
            <HistoryView 
              transactions={transactions} 
@@ -496,7 +544,7 @@ export default function App() {
            />
         )}
 
-        {/* === VIEW 3: VENDOR MANAGEMENT === */}
+        {/* === VIEW 4: VENDOR MANAGEMENT === */}
         {currentView === 'vendor' && (
             <VendorView 
                 vendors={vendors}
@@ -508,6 +556,14 @@ export default function App() {
       </main>
 
       {/* --- MODAL WINDOWS --- */}
+
+      {/* Saldo Awal Modal */}
+      {showSaldoModal && (
+        <InitialBalanceModal 
+          onClose={() => setShowSaldoModal(false)}
+          onSave={handleAddTransaction}
+        />
+      )}
 
       {/* Edit Transaction Modal */}
       {editingTransaction && (
@@ -525,6 +581,180 @@ export default function App() {
 // ==========================================
 // 3. SUB-COMPONENTS (TAMPILAN & FORM)
 // ==========================================
+
+// --- ANALYTICS VIEW ---
+function AnalyticsView({ transactions, formatIDR }) {
+  // 1. Data Arus Kas Bulanan (Bar Chart Data)
+  const monthlyData = useMemo(() => {
+    const data = {};
+    const last6Months = [];
+    
+    // Generate label 6 bulan terakhir
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const key = d.toLocaleDateString('id-ID', { month: 'short', year: '2-digit' }); // Jan 24
+      last6Months.push(key);
+      data[key] = { income: 0, expense: 0 };
+    }
+
+    transactions.forEach(t => {
+      const d = new Date(t.date);
+      const key = d.toLocaleDateString('id-ID', { month: 'short', year: '2-digit' });
+      if (data[key]) {
+        if (t.type === 'income') data[key].income += Number(t.amount);
+        else data[key].expense += Number(t.amount);
+      }
+    });
+
+    return last6Months.map(key => ({
+      label: key,
+      ...data[key]
+    }));
+  }, [transactions]);
+
+  // 2. Efisiensi (Total)
+  const totals = useMemo(() => {
+    const inc = transactions.filter(t => t.type === 'income').reduce((a, b) => a + b.amount, 0);
+    const exp = transactions.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
+    const ratio = inc > 0 ? ((exp / inc) * 100).toFixed(1) : 0;
+    return { inc, exp, ratio };
+  }, [transactions]);
+
+  // 3. Top Pengeluaran (Berdasarkan Keterangan/Category)
+  const topExpenses = useMemo(() => {
+    const groups = {};
+    transactions
+      .filter(t => t.type === 'expense')
+      .forEach(t => {
+        // Gunakan category atau description singkat
+        const key = t.description ? t.description.substring(0, 20) : 'Lainnya'; 
+        if (!groups[key]) groups[key] = 0;
+        groups[key] += t.amount;
+      });
+    
+    return Object.entries(groups)
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5); // Ambil 5 teratas
+  }, [transactions]);
+
+  // Helper untuk tinggi bar chart
+  const maxVal = Math.max(...monthlyData.map(d => Math.max(d.income, d.expense)), 1000);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in slide-in-from-bottom-4 duration-500">
+      
+      {/* 1. Grafik Arus Kas Bulanan */}
+      <div className="bg-white/40 backdrop-blur-xl p-6 rounded-3xl shadow-xl border border-white/50 lg:col-span-2">
+        <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
+          <BarChart3 size={20} className="text-indigo-600"/>
+          Analisis Arus Kas (6 Bulan Terakhir)
+        </h3>
+        
+        <div className="h-64 flex items-end justify-between gap-2 sm:gap-4 px-2">
+          {monthlyData.map((d, idx) => (
+            <div key={idx} className="flex-1 flex flex-col items-center gap-2 group relative">
+              <div className="w-full flex justify-center gap-1 items-end h-48">
+                {/* Bar Income */}
+                <div 
+                  className="w-3 sm:w-6 bg-emerald-400 rounded-t-md hover:bg-emerald-500 transition-all relative"
+                  style={{ height: `${(d.income / maxVal) * 100}%` }}
+                >
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 text-[10px] font-bold text-gray-600 opacity-0 group-hover:opacity-100 pointer-events-none bg-white px-1 rounded shadow whitespace-nowrap z-10">
+                        Masuk: {formatIDR(d.income)}
+                    </div>
+                </div>
+                {/* Bar Expense */}
+                <div 
+                  className="w-3 sm:w-6 bg-rose-400 rounded-t-md hover:bg-rose-500 transition-all relative"
+                  style={{ height: `${(d.expense / maxVal) * 100}%` }}
+                >
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 text-[10px] font-bold text-gray-600 opacity-0 group-hover:opacity-100 pointer-events-none bg-white px-1 rounded shadow whitespace-nowrap z-10">
+                        Keluar: {formatIDR(d.expense)}
+                    </div>
+                </div>
+              </div>
+              <span className="text-[10px] sm:text-xs font-bold text-gray-500">{d.label}</span>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-center gap-4 mt-4">
+            <div className="flex items-center gap-2 text-xs font-bold text-gray-600">
+                <span className="w-3 h-3 bg-emerald-400 rounded-full"></span> Pemasukan
+            </div>
+            <div className="flex items-center gap-2 text-xs font-bold text-gray-600">
+                <span className="w-3 h-3 bg-rose-400 rounded-full"></span> Pengeluaran
+            </div>
+        </div>
+      </div>
+
+      {/* 2. Indikator Kesehatan Keuangan */}
+      <div className="bg-white/40 backdrop-blur-xl p-6 rounded-3xl shadow-xl border border-white/50">
+        <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <Percent size={20} className="text-blue-600"/>
+            Efisiensi Keuangan
+        </h3>
+        <div className="flex items-center justify-center py-6">
+            <div className="relative w-40 h-40">
+                <svg className="w-full h-full" viewBox="0 0 36 36">
+                    <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="#e2e8f0"
+                        strokeWidth="3"
+                    />
+                    <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke={totals.ratio > 80 ? '#f43f5e' : totals.ratio > 50 ? '#f59e0b' : '#10b981'}
+                        strokeWidth="3"
+                        strokeDasharray={`${totals.ratio}, 100`}
+                        className="animate-[spin_1s_ease-out_reverse]"
+                    />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-3xl font-black text-gray-800">{totals.ratio}%</span>
+                    <span className="text-[10px] font-bold text-gray-500 uppercase">Ratio Keluar/Masuk</span>
+                </div>
+            </div>
+        </div>
+        <div className="text-center text-xs text-gray-600 font-medium px-4">
+            {totals.ratio > 100 
+                ? "Peringatan: Pengeluaran melebihi pemasukan!" 
+                : totals.ratio > 70 
+                ? "Perhatian: Pengeluaran cukup tinggi." 
+                : "Keuangan Sehat. Terus pertahankan!"}
+        </div>
+      </div>
+
+      {/* 3. Top Pengeluaran */}
+      <div className="bg-white/40 backdrop-blur-xl p-6 rounded-3xl shadow-xl border border-white/50">
+         <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <TrendingDown size={20} className="text-rose-600"/>
+            Top Pengeluaran
+        </h3>
+        <div className="space-y-3">
+            {topExpenses.map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between p-3 bg-white/50 rounded-xl border border-white/50">
+                    <div className="flex items-center gap-3">
+                        <span className="w-6 h-6 flex items-center justify-center bg-rose-100 text-rose-600 font-bold rounded-lg text-xs">
+                            {idx + 1}
+                        </span>
+                        <span className="text-sm font-bold text-gray-700 truncate max-w-[120px]">{item.name}</span>
+                    </div>
+                    <span className="text-sm font-bold text-rose-600">{formatIDR(item.amount)}</span>
+                </div>
+            ))}
+            {topExpenses.length === 0 && (
+                <p className="text-center text-gray-400 text-sm py-4">Belum ada data pengeluaran.</p>
+            )}
+        </div>
+      </div>
+
+    </div>
+  );
+}
 
 // --- VENDOR VIEW ---
 function VendorView({ vendors, onAdd, onDelete }) {
@@ -684,9 +914,32 @@ function VendorView({ vendors, onAdd, onDelete }) {
 
 // --- HISTORY VIEW ---
 function HistoryView({ transactions, formatIDR, onDelete, onEdit }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState('all'); // all | income | expense
+
+  // 1. FILTER TRANSACTIONS FIRST
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => {
+        // Filter Type
+        if (filterType !== 'all' && t.type !== filterType) return false;
+        
+        // Filter Search
+        if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            return (
+                (t.description && t.description.toLowerCase().includes(term)) ||
+                (t.vendorName && t.vendorName.toLowerCase().includes(term)) ||
+                (t.amount && t.amount.toString().includes(term))
+            );
+        }
+        return true;
+    });
+  }, [transactions, searchTerm, filterType]);
+
+  // 2. GROUP FILTERED TRANSACTIONS
   const groupedTransactions = useMemo(() => {
     const groups = {};
-    transactions.forEach(t => {
+    filteredTransactions.forEach(t => {
       const date = new Date(t.date);
       const key = date.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
       if (!groups[key]) {
@@ -701,51 +954,85 @@ function HistoryView({ transactions, formatIDR, onDelete, onEdit }) {
       else groups[key].totalExpense += t.amount;
     });
     return groups;
-  }, [transactions]);
-
-  if (transactions.length === 0) {
-    return (
-      <div className="text-center py-20 bg-white/40 rounded-3xl border border-white/50 shadow-xl backdrop-blur-xl">
-        <Search size={48} className="mx-auto text-gray-300 mb-4" />
-        <p className="text-gray-500 font-medium">Belum ada riwayat transaksi</p>
-      </div>
-    );
-  }
+  }, [filteredTransactions]);
 
   return (
-    <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
-      {Object.entries(groupedTransactions).map(([month, data]) => (
-        <div key={month} className="bg-white/40 backdrop-blur-xl rounded-3xl shadow-xl border border-white/50 overflow-hidden">
-          {/* Month Header */}
-          <div className="p-6 bg-white/30 border-b border-white/40 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
-              <Calendar size={20} className="text-indigo-600" />
-              {month}
-            </h2>
-            <div className="flex gap-4 text-xs font-bold">
-              <div className="px-3 py-1.5 bg-emerald-100/50 text-emerald-700 rounded-lg border border-emerald-100">
-                Masuk: {formatIDR(data.totalIncome)}
-              </div>
-              <div className="px-3 py-1.5 bg-rose-100/50 text-rose-700 rounded-lg border border-rose-100">
-                Keluar: {formatIDR(data.totalExpense)}
-              </div>
-            </div>
-          </div>
+    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+      
+      {/* FILTER & SEARCH BAR */}
+      <div className="bg-white/40 backdrop-blur-xl p-4 rounded-3xl shadow-lg border border-white/50 flex flex-col md:flex-row gap-4 items-center justify-between">
+         <div className="relative group w-full md:w-auto flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors"/>
+            <input 
+                type="text" 
+                placeholder="Cari transaksi..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-white/60 border border-white/60 rounded-xl text-sm font-medium focus:bg-white focus:ring-2 focus:ring-indigo-400/20 outline-none transition-all"
+            />
+         </div>
+         
+         <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+             <button 
+                onClick={() => setFilterType('all')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border whitespace-nowrap ${filterType === 'all' ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/30' : 'bg-white/50 text-gray-600 border-white/60 hover:bg-white'}`}
+             >
+                 Semua
+             </button>
+             <button 
+                onClick={() => setFilterType('income')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border whitespace-nowrap flex items-center gap-1 ${filterType === 'income' ? 'bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-500/30' : 'bg-white/50 text-gray-600 border-white/60 hover:bg-white'}`}
+             >
+                 <ArrowRight size={12} className="-rotate-45"/> Pemasukan
+             </button>
+             <button 
+                onClick={() => setFilterType('expense')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border whitespace-nowrap flex items-center gap-1 ${filterType === 'expense' ? 'bg-rose-500 text-white border-rose-500 shadow-lg shadow-rose-500/30' : 'bg-white/50 text-gray-600 border-white/60 hover:bg-white'}`}
+             >
+                 <ArrowRight size={12} className="rotate-45"/> Pengeluaran
+             </button>
+         </div>
+      </div>
 
-          {/* List Items */}
-          <div className="p-4 space-y-3">
-            {data.items.map(t => (
-               <TransactionItem 
-                  key={t.id} 
-                  t={t} 
-                  formatIDR={formatIDR} 
-                  onDelete={onDelete} 
-                  onEdit={onEdit}
-                />
-            ))}
+      {filteredTransactions.length === 0 ? (
+          <div className="text-center py-20 bg-white/40 rounded-3xl border border-white/50 shadow-xl backdrop-blur-xl">
+            <Search size={48} className="mx-auto text-gray-300 mb-4" />
+            <p className="text-gray-500 font-medium">Tidak ada transaksi ditemukan</p>
           </div>
-        </div>
-      ))}
+      ) : (
+        Object.entries(groupedTransactions).map(([month, data]) => (
+            <div key={month} className="bg-white/40 backdrop-blur-xl rounded-3xl shadow-xl border border-white/50 overflow-hidden">
+            {/* Month Header */}
+            <div className="p-6 bg-white/30 border-b border-white/40 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                <Calendar size={20} className="text-indigo-600" />
+                {month}
+                </h2>
+                <div className="flex gap-4 text-xs font-bold">
+                <div className="px-3 py-1.5 bg-emerald-100/50 text-emerald-700 rounded-lg border border-emerald-100">
+                    Masuk: {formatIDR(data.totalIncome)}
+                </div>
+                <div className="px-3 py-1.5 bg-rose-100/50 text-rose-700 rounded-lg border border-rose-100">
+                    Keluar: {formatIDR(data.totalExpense)}
+                </div>
+                </div>
+            </div>
+
+            {/* List Items */}
+            <div className="p-4 space-y-3">
+                {data.items.map(t => (
+                <TransactionItem 
+                    key={t.id} 
+                    t={t} 
+                    formatIDR={formatIDR} 
+                    onDelete={onDelete} 
+                    onEdit={onEdit}
+                    />
+                ))}
+            </div>
+            </div>
+        ))
+      )}
     </div>
   );
 }
@@ -763,21 +1050,33 @@ function TransactionItem({ t, formatIDR, onDelete, onEdit }) {
           {t.type === 'income' ? <ArrowRight size={20} className="-rotate-45" /> : <ArrowRight size={20} className="rotate-45" />}
         </div>
         
-        <div className="min-w-0">
-          <h3 className="font-bold text-gray-800 truncate text-base">
-            {t.description || t.category || "Transaksi"}
+        <div className="min-w-0 flex-1">
+          {/* Main Title is Description */}
+          <h3 className="font-bold text-gray-800 truncate text-base mb-0.5">
+            {t.description || "Transaksi"}
           </h3>
-          {t.vendorName && (
-             <div className="flex items-center gap-1 text-xs text-indigo-600 font-medium mt-0.5">
-                <Store size={10} /> {t.vendorName}
-             </div>
-          )}
-          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mt-1">
-            <span className="font-medium">{new Date(t.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}</span>
+          
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+             {/* Category Badge */}
+             <span className={`px-1.5 py-0.5 rounded-md font-bold border ${
+                 t.type === 'income' 
+                 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
+                 : 'bg-rose-50 text-rose-600 border-rose-200'
+             }`}>
+                 {t.category || (t.type === 'income' ? 'Pemasukan' : 'Pengeluaran')}
+             </span>
+
+             {t.vendorName && (
+                <div className="flex items-center gap-1 text-indigo-600 font-medium">
+                    <Store size={10} /> {t.vendorName}
+                </div>
+             )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-[10px] text-gray-400 mt-1.5 font-medium">
+            <span>{new Date(t.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
             <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-            <span className="text-indigo-400 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-100/50">
-              {t.inputByName?.split(' ')[0]}
-            </span>
+            <span>Input: {t.inputByName?.split(' ')[0]}</span>
           </div>
         </div>
       </div>
@@ -809,7 +1108,7 @@ function TransactionItem({ t, formatIDR, onDelete, onEdit }) {
   );
 }
 
-// --- MODAL EDIT ---
+// --- MODAL: EDIT TRANSACTION ---
 function EditTransactionModal({ transaction, onClose, onSave, vendors }) {
     const [amount, setAmount] = useState(transaction.amount);
     const [date, setDate] = useState(transaction.date);
@@ -906,14 +1205,89 @@ function EditTransactionModal({ transaction, onClose, onSave, vendors }) {
     );
 }
 
+// --- MODAL: INITIAL BALANCE ---
+function InitialBalanceModal({ onClose, onSave }) {
+  const [amount, setAmount] = useState('');
+  const [displayAmount, setDisplayAmount] = useState('');
+
+  const handleAmountChange = (e) => {
+      // Hapus karakter non-digit
+      const rawValue = e.target.value.replace(/\D/g, '');
+      setAmount(rawValue);
+      
+      // Format tampilan dengan titik
+      if (rawValue) {
+          const formatted = new Intl.NumberFormat('id-ID').format(rawValue);
+          setDisplayAmount(formatted);
+      } else {
+          setDisplayAmount('');
+      }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if(!amount) return;
+
+    onSave({
+        type: 'income',
+        amount: parseFloat(amount),
+        date: new Date().toISOString().split('T')[0],
+        category: 'Saldo Awal',
+        description: 'Saldo Awal Sistem',
+        vendorName: null,
+        vendorId: null
+    });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-indigo-900/30 backdrop-blur-sm" onClick={onClose}></div>
+        <div className="bg-white/90 backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl border border-white/60 p-6 relative">
+            <h3 className="text-lg font-bold text-gray-800 mb-4">Isi Saldo Awal</h3>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                 <div className="relative group">
+                    <span className="absolute left-4 top-3.5 text-gray-400 font-bold group-focus-within:text-indigo-500 transition-colors">Rp</span>
+                    <input
+                      type="text" required placeholder="0"
+                      value={displayAmount} onChange={handleAmountChange}
+                      className="w-full pl-12 pr-4 py-3 bg-white/50 border border-white/60 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-400/30 outline-none transition-all font-mono text-lg font-bold text-gray-800 shadow-sm"
+                    />
+                  </div>
+                  <button type="submit" className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold">
+                    Simpan Saldo
+                  </button>
+            </form>
+        </div>
+    </div>
+  )
+}
+
 // --- FORM TRANSAKSI ---
 function TransactionFormGlass({ onAdd, vendors }) {
   const [type, setType] = useState('income');
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(''); // Nilai murni (angka)
+  const [displayAmount, setDisplayAmount] = useState(''); // Nilai tampilan (dengan titik)
+  
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
   const [vendorId, setVendorId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Fungsi untuk menangani input angka dengan format ribuan
+  const handleAmountChange = (e) => {
+    // Hapus karakter selain angka
+    const rawValue = e.target.value.replace(/\D/g, '');
+    setAmount(rawValue);
+    
+    // Format ke tampilan Rupiah (ribuan)
+    if (rawValue) {
+        const formatted = new Intl.NumberFormat('id-ID').format(rawValue);
+        setDisplayAmount(formatted);
+    } else {
+        setDisplayAmount('');
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -935,6 +1309,7 @@ function TransactionFormGlass({ onAdd, vendors }) {
     
     // Reset Form
     setAmount('');
+    setDisplayAmount('');
     setDescription('');
     setVendorId('');
     setIsSubmitting(false);
@@ -959,9 +1334,10 @@ function TransactionFormGlass({ onAdd, vendors }) {
           <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider ml-1">Jumlah (Rp)</label>
           <div className="relative group">
             <span className="absolute left-4 top-3.5 text-gray-400 font-bold group-focus-within:text-indigo-500 transition-colors">Rp</span>
+            {/* Ubah type menjadi text untuk mendukung titik */}
             <input
-              type="number" required min="0" placeholder="0"
-              value={amount} onChange={(e) => setAmount(e.target.value)}
+              type="text" required placeholder="0"
+              value={displayAmount} onChange={handleAmountChange}
               className="w-full pl-12 pr-4 py-3 bg-white/50 border border-white/60 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400/50 outline-none transition-all font-mono text-lg font-bold text-gray-800 placeholder-gray-300 shadow-sm"
             />
           </div>
@@ -1075,7 +1451,7 @@ function LoginScreenGlass({ onLogin }) {
 }
 
 // --- SUMMARY CARD ---
-function SummaryCardGlass({ title, amount, type, formatIDR }) {
+function SummaryCardGlass({ title, amount, type, formatIDR, onAddInitialBalance }) {
   const styles = {
     balance: {
       gradient: 'from-blue-500 to-indigo-600',
@@ -1115,9 +1491,17 @@ function SummaryCardGlass({ title, amount, type, formatIDR }) {
           {s.icon}
         </div>
         {type === 'balance' && (
-          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full border ${amount >= 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
-            {amount >= 0 ? 'Surplus' : 'Defisit'}
-          </span>
+          <div className="flex flex-col items-end gap-1">
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full border ${amount >= 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
+                {amount >= 0 ? 'Surplus' : 'Defisit'}
+            </span>
+            <button 
+              onClick={onAddInitialBalance}
+              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 underline decoration-dotted"
+            >
+              + Isi Saldo Awal
+            </button>
+          </div>
         )}
       </div>
       <div className="relative z-10">
