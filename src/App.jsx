@@ -28,7 +28,9 @@ import {
   Phone, 
   FileText,
   BarChart3,
-  Percent
+  Percent,
+  Banknote,
+  AlertTriangle
 } from 'lucide-react';
 
 // --- IMPORT FIREBASE ---
@@ -104,14 +106,19 @@ export default function App() {
   // Data State
   const [transactions, setTransactions] = useState([]);
   const [vendors, setVendors] = useState([]); 
+  const [loans, setLoans] = useState([]); // Data Pinjaman
+  const [repayments, setRepayments] = useState([]); // Data Cicilan
   const [loading, setLoading] = useState(true);
   
   // UI State
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'history' | 'vendor' | 'analytics'
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'history' | 'vendor' | 'analytics' | 'loans'
 
   // Edit State
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [showSaldoModal, setShowSaldoModal] = useState(false);
+  
+  // Delete Confirmation State
+  const [deleteTarget, setDeleteTarget] = useState(null); // { id, type, message }
 
   // Search State for Dashboard
   const [dashboardSearch, setDashboardSearch] = useState('');
@@ -151,55 +158,50 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    // Menentukan Path Koleksi (Preview vs Production)
-    const trxCollectionPath = isPreviewEnv 
-      ? collection(db, 'artifacts', appId, 'public', 'data', 'transactions')
-      : collection(db, 'transactions');
-      
-    const vndCollectionPath = isPreviewEnv
-      ? collection(db, 'artifacts', appId, 'public', 'data', 'vendors')
-      : collection(db, 'vendors');
+    // Helper untuk menentukan path
+    const getPath = (colName) => isPreviewEnv 
+      ? collection(db, 'artifacts', appId, 'public', 'data', colName)
+      : collection(db, colName);
 
-    // 1. Subscribe ke Data Transaksi
-    const qTrx = query(trxCollectionPath);
-    const unsubscribeTrx = onSnapshot(qTrx, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data() 
-      }));
-      
-      // Sorting Client-Side (Terbaru di atas)
-      // Mengutamakan Tanggal Transaksi, lalu Waktu Input
+    // 1. Subscribe Transactions
+    const unsubscribeTrx = onSnapshot(query(getPath('transactions')), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       data.sort((a, b) => {
         const dateA = a.date ? new Date(a.date) : new Date();
         const dateB = b.date ? new Date(b.date) : new Date();
         if (dateB - dateA !== 0) return dateB - dateA;
         return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
       });
-
       setTransactions(data);
       setLoading(false);
-    }, (error) => {
-        console.error("Error fetching transactions:", error);
-        setLoading(false); 
     });
 
-    // 2. Subscribe ke Data Vendor
-    const qVendors = query(vndCollectionPath);
-    const unsubscribeVendors = onSnapshot(qVendors, (snapshot) => {
-        const data = snapshot.docs.map(doc => ({ 
-          id: doc.id, 
-          ...doc.data() 
-        }));
-        
-        // Sort Vendor (Terbaru di atas)
-        data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-        setVendors(data);
+    // 2. Subscribe Vendors
+    const unsubscribeVendors = onSnapshot(query(getPath('vendors')), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setVendors(data);
+    });
+
+    // 3. Subscribe Loans (Pinjaman)
+    const unsubscribeLoans = onSnapshot(query(getPath('loans')), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a, b) => new Date(b.startDate) - new Date(a.startDate)); // Terbaru di atas
+      setLoans(data);
+    });
+
+    // 4. Subscribe Repayments (Cicilan)
+    const unsubscribeRepayments = onSnapshot(query(getPath('loan_repayments')), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a, b) => new Date(b.date) - new Date(a.date));
+      setRepayments(data);
     });
 
     return () => {
       unsubscribeTrx();
       unsubscribeVendors();
+      unsubscribeLoans();
+      unsubscribeRepayments();
     };
   }, [user]);
 
@@ -234,7 +236,6 @@ export default function App() {
       });
     } catch (error) {
       console.error("Gagal menambah data:", error);
-      // alert("Gagal menyimpan. Cek koneksi internet.");
     }
   };
 
@@ -253,23 +254,41 @@ export default function App() {
       setEditingTransaction(null);
     } catch (error) {
       console.error("Gagal update:", error);
-      // alert("Gagal mengubah data.");
     }
   };
 
-  const handleDeleteTransaction = async (id) => {
-    if (!user) return;
-    if (confirm('Hapus data transaksi ini secara permanen?')) {
-      try {
-        const docRef = isPreviewEnv 
-            ? doc(db, 'artifacts', appId, 'public', 'data', 'transactions', id)
-            : doc(db, 'transactions', id);
-        
-        await deleteDoc(docRef);
-      } catch (error) { 
-        console.error("Gagal hapus:", error); 
-      }
+  // Unified Delete Handler
+  const executeDelete = async () => {
+    if (!user || !deleteTarget) return;
+    
+    try {
+      let colName = '';
+      if (deleteTarget.type === 'transaction') colName = 'transactions';
+      else if (deleteTarget.type === 'vendor') colName = 'vendors';
+      else if (deleteTarget.type === 'loan') colName = 'loans';
+
+      const docRef = isPreviewEnv 
+          ? doc(db, 'artifacts', appId, 'public', 'data', colName, deleteTarget.id)
+          : doc(db, colName, deleteTarget.id);
+      
+      await deleteDoc(docRef);
+      setDeleteTarget(null); // Close modal
+    } catch (error) { 
+      console.error("Gagal hapus:", error); 
     }
+  };
+
+  // Wrappers to open modal
+  const promptDeleteTransaction = (id) => {
+    setDeleteTarget({ id, type: 'transaction', message: 'Hapus data transaksi ini secara permanen?' });
+  };
+  
+  const promptDeleteVendor = (id) => {
+    setDeleteTarget({ id, type: 'vendor', message: 'Hapus data vendor ini?' });
+  };
+
+  const promptDeleteLoan = (id) => {
+    setDeleteTarget({ id, type: 'loan', message: 'Hapus data pinjaman ini? Data cicilan terkait tidak otomatis terhapus.' });
   };
 
   // --- LOGIKA BISNIS: VENDOR ---
@@ -286,25 +305,61 @@ export default function App() {
             createdAt: serverTimestamp(),
             createdBy: appUser?.name
         });
-    } catch (error) {
-        console.error("Gagal tambah vendor:", error);
-        // alert("Gagal menyimpan vendor.");
-    }
+    } catch (error) { console.error(error); }
   };
 
-  const handleDeleteVendor = async (id) => {
-      if (!user) return;
-      if (confirm('Hapus data vendor ini?')) {
-          try {
-              const docRef = isPreviewEnv 
-                ? doc(db, 'artifacts', appId, 'public', 'data', 'vendors', id)
-                : doc(db, 'vendors', id);
+  // --- LOGIKA BISNIS: PINJAMAN (LOANS) ---
+  
+  const handleAddLoan = async (loanData, addToTransactions) => {
+    if (!user) return;
+    try {
+      const colRef = isPreviewEnv 
+        ? collection(db, 'artifacts', appId, 'public', 'data', 'loans')
+        : collection(db, 'loans');
+      
+      await addDoc(colRef, {
+        ...loanData,
+        createdAt: serverTimestamp(),
+        createdBy: appUser?.name
+      });
 
-              await deleteDoc(docRef);
-          } catch(e) { 
-            console.error(e); 
-          }
+      // Jika user memilih untuk catat di dashboard
+      if (addToTransactions) {
+        await handleAddTransaction({
+          type: 'expense',
+          amount: parseFloat(loanData.totalAmount),
+          date: loanData.startDate,
+          category: 'Pemberian Pinjaman',
+          description: `Pinjaman ke ${loanData.debtorName}`,
+          vendorName: loanData.debtorName
+        });
       }
+    } catch (error) { console.error("Gagal tambah pinjaman:", error); }
+  };
+
+  const handleAddRepayment = async (repaymentData, addToTransactions) => {
+    if (!user) return;
+    try {
+      const colRef = isPreviewEnv 
+        ? collection(db, 'artifacts', appId, 'public', 'data', 'loan_repayments')
+        : collection(db, 'loan_repayments');
+      
+      await addDoc(colRef, {
+        ...repaymentData,
+        createdAt: serverTimestamp(),
+        createdBy: appUser?.name
+      });
+
+      if (addToTransactions) {
+        await handleAddTransaction({
+           type: 'income',
+           amount: parseFloat(repaymentData.amount),
+           date: repaymentData.date,
+           category: 'Pembayaran Piutang',
+           description: `Cicilan dari ${repaymentData.debtorName}`
+        });
+      }
+    } catch (error) { console.error("Gagal tambah cicilan:", error); }
   };
 
   // --- HELPER FUNCTION: Summary Calculation ---
@@ -409,6 +464,13 @@ export default function App() {
                 Riwayat
               </button>
               <button 
+                onClick={() => setCurrentView('loans')}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${currentView === 'loans' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:bg-white/40'}`}
+              >
+                <CreditCard size={14} /> 
+                Pinjaman
+              </button>
+              <button 
                 onClick={() => setCurrentView('vendor')}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${currentView === 'vendor' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:bg-white/40'}`}
               >
@@ -510,7 +572,7 @@ export default function App() {
                         key={t.id} 
                         t={t} 
                         formatIDR={formatIDR} 
-                        onDelete={handleDeleteTransaction}
+                        onDelete={promptDeleteTransaction}
                         onEdit={setEditingTransaction}
                       />
                     ))}
@@ -539,23 +601,66 @@ export default function App() {
            <HistoryView 
              transactions={transactions} 
              formatIDR={formatIDR} 
-             onDelete={handleDeleteTransaction} 
+             onDelete={promptDeleteTransaction} 
              onEdit={setEditingTransaction}
            />
         )}
+        
+        {/* === VIEW 4: LOANS (PINJAMAN) === */}
+        {currentView === 'loans' && (
+            <LoanView 
+                loans={loans}
+                repayments={repayments}
+                onAddLoan={handleAddLoan}
+                onAddRepayment={handleAddRepayment}
+                onDeleteLoan={promptDeleteLoan}
+                formatIDR={formatIDR}
+            />
+        )}
 
-        {/* === VIEW 4: VENDOR MANAGEMENT === */}
+        {/* === VIEW 5: VENDOR MANAGEMENT === */}
         {currentView === 'vendor' && (
             <VendorView 
                 vendors={vendors}
                 onAdd={handleAddVendor}
-                onDelete={handleDeleteVendor}
+                onDelete={promptDeleteVendor}
             />
         )}
 
       </main>
 
       {/* --- MODAL WINDOWS --- */}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm transition-opacity" onClick={() => setDeleteTarget(null)}></div>
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 relative z-10 animate-in fade-in zoom-in-95 duration-200">
+                <div className="flex flex-col items-center text-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-red-100 text-red-500 flex items-center justify-center">
+                        <AlertTriangle size={24} />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-800">Konfirmasi Hapus</h3>
+                    <p className="text-sm text-gray-500">{deleteTarget.message}</p>
+                    
+                    <div className="flex gap-3 w-full mt-4">
+                        <button 
+                            onClick={() => setDeleteTarget(null)}
+                            className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors"
+                        >
+                            Batal
+                        </button>
+                        <button 
+                            onClick={executeDelete}
+                            className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl transition-colors shadow-lg shadow-red-500/30"
+                        >
+                            Hapus
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
 
       {/* Saldo Awal Modal */}
       {showSaldoModal && (
@@ -579,8 +684,344 @@ export default function App() {
 }
 
 // ==========================================
-// 3. SUB-COMPONENTS (TAMPILAN & FORM)
+// 3. SUB-COMPONENTS
 // ==========================================
+
+// --- LOAN VIEW (PINJAMAN) ---
+function LoanView({ loans, repayments, onAddLoan, onAddRepayment, onDeleteLoan, formatIDR }) {
+    const [isFormOpen, setIsFormOpen] = useState(false);
+    const [selectedLoanForRepayment, setSelectedLoanForRepayment] = useState(null);
+
+    // Summary calculation for header
+    const summary = useMemo(() => {
+        let totalLent = 0;
+        let totalPaid = 0;
+        loans.forEach(l => { totalLent += Number(l.totalAmount) });
+        repayments.forEach(r => { totalPaid += Number(r.amount) });
+        return { totalLent, totalPaid, remaining: totalLent - totalPaid };
+    }, [loans, repayments]);
+
+    return (
+        <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+            {/* Header Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white/40 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-white/50 relative overflow-hidden">
+                    <div className="flex items-center gap-3 mb-2 text-indigo-800">
+                        <CreditCard size={20} className="text-indigo-600"/>
+                        <span className="font-bold text-xs uppercase tracking-wider">Total Dipinjamkan</span>
+                    </div>
+                    <p className="text-2xl font-black text-indigo-900">{formatIDR(summary.totalLent)}</p>
+                </div>
+                <div className="bg-white/40 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-white/50">
+                    <div className="flex items-center gap-3 mb-2 text-emerald-800">
+                        <CheckCircle2 size={20} className="text-emerald-600"/>
+                        <span className="font-bold text-xs uppercase tracking-wider">Sudah Kembali</span>
+                    </div>
+                    <p className="text-2xl font-black text-emerald-900">{formatIDR(summary.totalPaid)}</p>
+                </div>
+                <div className="bg-white/40 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-white/50">
+                    <div className="flex items-center gap-3 mb-2 text-rose-800">
+                        <AlertCircle size={20} className="text-rose-600"/>
+                        <span className="font-bold text-xs uppercase tracking-wider">Sisa Piutang</span>
+                    </div>
+                    <p className="text-2xl font-black text-rose-900">{formatIDR(summary.remaining)}</p>
+                </div>
+            </div>
+
+            {/* Action Bar */}
+            <div className="flex justify-between items-center bg-white/40 backdrop-blur-xl p-4 rounded-3xl border border-white/50">
+                <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <Users size={20} className="text-indigo-600"/> Daftar Peminjam
+                </h2>
+                <button 
+                    onClick={() => setIsFormOpen(true)}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 transition-all flex items-center gap-2"
+                >
+                    <PlusCircle size={16}/> Buat Pinjaman Baru
+                </button>
+            </div>
+
+            {/* Loans List */}
+            <div className="grid grid-cols-1 gap-4">
+                {loans.length === 0 ? (
+                    <div className="text-center py-20 bg-white/40 rounded-3xl border border-white/50 text-gray-400">
+                        Belum ada data pinjaman.
+                    </div>
+                ) : (
+                    loans.map(loan => {
+                        // Calculate specific loan progress
+                        const loanRepayments = repayments.filter(r => r.loanId === loan.id);
+                        const paid = loanRepayments.reduce((sum, r) => sum + Number(r.amount), 0);
+                        const progress = Math.min((paid / loan.totalAmount) * 100, 100);
+                        const isPaidOff = paid >= loan.totalAmount;
+
+                        return (
+                            <div key={loan.id} className="bg-white/60 backdrop-blur-sm p-6 rounded-3xl border border-white/60 hover:border-white shadow-sm hover:shadow-lg transition-all relative overflow-hidden group">
+                                <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-4 relative z-10">
+                                    <div className="flex items-start gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xl">
+                                            {loan.debtorName.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-gray-800 text-lg">{loan.debtorName}</h3>
+                                            <p className="text-xs text-gray-500 font-medium">{loan.description || 'Pinjaman Tunai'}</p>
+                                            <p className="text-[10px] text-gray-400 mt-1">
+                                                Tgl: {new Date(loan.startDate).toLocaleDateString('id-ID')}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Total Pinjaman</p>
+                                        <p className="text-xl font-black text-gray-800">{formatIDR(loan.totalAmount)}</p>
+                                        {isPaidOff ? (
+                                            <span className="inline-block bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 mt-1">
+                                                LUNAS
+                                            </span>
+                                        ) : (
+                                            <span className="inline-block bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-200 mt-1">
+                                                Belum Lunas
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Progress Bar */}
+                                <div className="relative z-10 mb-4">
+                                    <div className="flex justify-between text-xs font-bold text-gray-500 mb-1">
+                                        <span>Terbayar: {formatIDR(paid)}</span>
+                                        <span>Sisa: {formatIDR(loan.totalAmount - paid)}</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                                        <div 
+                                            className={`h-2.5 rounded-full transition-all duration-1000 ${isPaidOff ? 'bg-emerald-500' : 'bg-indigo-500'}`} 
+                                            style={{ width: `${progress}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
+
+                                {/* Repayment History (Brief) */}
+                                {loanRepayments.length > 0 && (
+                                    <div className="relative z-10 bg-white/50 rounded-xl p-3 mb-4 border border-white/50">
+                                        <p className="text-[10px] font-bold text-gray-500 uppercase mb-2">Riwayat Cicilan</p>
+                                        <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
+                                            {loanRepayments.map(r => (
+                                                <div key={r.id} className="flex justify-between text-xs font-medium text-gray-700 border-b border-gray-200/50 pb-1 last:border-0 last:pb-0">
+                                                    <span>{new Date(r.date).toLocaleDateString('id-ID')}</span>
+                                                    <span className="text-emerald-600">+{formatIDR(r.amount)}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Actions */}
+                                <div className="flex justify-end gap-3 relative z-10 border-t border-gray-100 pt-3">
+                                    <button 
+                                        onClick={() => onDeleteLoan(loan.id)}
+                                        className="px-3 py-2 text-xs font-bold text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                                    >
+                                        Hapus
+                                    </button>
+                                    {!isPaidOff && (
+                                        <button 
+                                            onClick={() => setSelectedLoanForRepayment({ ...loan, paid, remaining: loan.totalAmount - paid })}
+                                            className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md transition-all flex items-center gap-1"
+                                        >
+                                            <Wallet size={12}/> Bayar Cicilan
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
+            </div>
+
+            {/* MODALS */}
+            {isFormOpen && (
+                <AddLoanModal 
+                    onClose={() => setIsFormOpen(false)} 
+                    onSave={onAddLoan} 
+                />
+            )}
+
+            {selectedLoanForRepayment && (
+                <AddRepaymentModal
+                    loan={selectedLoanForRepayment}
+                    onClose={() => setSelectedLoanForRepayment(null)}
+                    onSave={onAddRepayment}
+                    formatIDR={formatIDR}
+                />
+            )}
+        </div>
+    );
+}
+
+// --- MODAL: ADD LOAN ---
+function AddLoanModal({ onClose, onSave }) {
+    const [name, setName] = useState('');
+    const [amount, setAmount] = useState(''); // Raw number
+    const [displayAmount, setDisplayAmount] = useState(''); // With dots
+    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [desc, setDesc] = useState('');
+    const [syncTransaction, setSyncTransaction] = useState(true);
+
+    const handleAmountChange = (e) => {
+        const rawValue = e.target.value.replace(/\D/g, '');
+        setAmount(rawValue);
+        if (rawValue) {
+            setDisplayAmount(new Intl.NumberFormat('id-ID').format(rawValue));
+        } else {
+            setDisplayAmount('');
+        }
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSave({
+            debtorName: name,
+            totalAmount: parseFloat(amount),
+            startDate: date,
+            description: desc || 'Pinjaman Karyawan/Pribadi',
+            status: 'active'
+        }, syncTransaction);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-indigo-900/30 backdrop-blur-sm" onClick={onClose}></div>
+            <div className="bg-white/95 backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl p-6 relative">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">Catat Pinjaman Baru</h3>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-gray-500">Nama Peminjam</label>
+                        <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-2 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-200 outline-none text-sm font-bold"/>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-gray-500">Jumlah (Rp)</label>
+                        <div className="relative group">
+                            <span className="absolute left-4 top-2 text-gray-400 font-bold group-focus-within:text-indigo-500 transition-colors">Rp</span>
+                            <input 
+                                type="text" 
+                                required 
+                                value={displayAmount} 
+                                onChange={handleAmountChange} 
+                                className="w-full pl-12 pr-4 py-2 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-200 outline-none text-sm font-bold"
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-gray-500">Tanggal</label>
+                        <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="w-full px-4 py-2 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-200 outline-none text-sm"/>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-gray-500">Keterangan</label>
+                        <textarea rows="2" value={desc} onChange={e => setDesc(e.target.value)} className="w-full px-4 py-2 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-200 outline-none text-sm"/>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 bg-rose-50 p-3 rounded-xl border border-rose-100">
+                        <input 
+                            type="checkbox" 
+                            id="syncTrx" 
+                            checked={syncTransaction} 
+                            onChange={e => setSyncTransaction(e.target.checked)}
+                            className="w-4 h-4 text-rose-600 rounded focus:ring-rose-500"
+                        />
+                        <label htmlFor="syncTrx" className="text-xs font-medium text-rose-700 cursor-pointer select-none">
+                            Catat otomatis sebagai <b>Pengeluaran</b> di Dashboard? (Saldo berkurang)
+                        </label>
+                    </div>
+
+                    <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold mt-2">Simpan Data</button>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+// --- MODAL: ADD REPAYMENT ---
+function AddRepaymentModal({ loan, onClose, onSave, formatIDR }) {
+    const [amount, setAmount] = useState(''); // Raw number
+    const [displayAmount, setDisplayAmount] = useState(''); // With dots
+    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [note, setNote] = useState('');
+    const [syncTransaction, setSyncTransaction] = useState(true);
+
+    const handleAmountChange = (e) => {
+        const rawValue = e.target.value.replace(/\D/g, '');
+        // Prevent typing more than remaining
+        if (parseFloat(rawValue) > loan.remaining) return; 
+        
+        setAmount(rawValue);
+        if (rawValue) {
+            setDisplayAmount(new Intl.NumberFormat('id-ID').format(rawValue));
+        } else {
+            setDisplayAmount('');
+        }
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSave({
+            loanId: loan.id,
+            debtorName: loan.debtorName,
+            amount: parseFloat(amount),
+            date,
+            note: note || 'Pembayaran Cicilan'
+        }, syncTransaction);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-indigo-900/30 backdrop-blur-sm" onClick={onClose}></div>
+            <div className="bg-white/95 backdrop-blur-xl w-full max-w-sm rounded-3xl shadow-2xl p-6 relative">
+                <h3 className="text-lg font-bold text-gray-800 mb-1">Bayar Cicilan</h3>
+                <p className="text-xs text-gray-500 mb-4">Peminjam: <span className="font-bold text-indigo-600">{loan.debtorName}</span> • Sisa: {formatIDR(loan.remaining)}</p>
+                
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-gray-500">Jumlah Bayar (Rp)</label>
+                        <div className="relative group">
+                            <span className="absolute left-4 top-2 text-gray-400 font-bold group-focus-within:text-indigo-500 transition-colors">Rp</span>
+                            <input 
+                                type="text" 
+                                required 
+                                value={displayAmount} 
+                                onChange={handleAmountChange} 
+                                className="w-full pl-12 pr-4 py-2 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-200 outline-none text-sm font-bold"
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-gray-500">Tanggal Bayar</label>
+                        <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="w-full px-4 py-2 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-200 outline-none text-sm"/>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-gray-500">Catatan (Opsional)</label>
+                        <input type="text" value={note} onChange={e => setNote(e.target.value)} className="w-full px-4 py-2 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-200 outline-none text-sm"/>
+                    </div>
+
+                    <div className="flex items-center gap-2 bg-emerald-50 p-3 rounded-xl border border-emerald-100">
+                        <input 
+                            type="checkbox" 
+                            id="syncRepay" 
+                            checked={syncTransaction} 
+                            onChange={e => setSyncTransaction(e.target.checked)}
+                            className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
+                        />
+                        <label htmlFor="syncRepay" className="text-xs font-medium text-emerald-700 cursor-pointer select-none">
+                            Catat otomatis sebagai <b>Pemasukan</b> di Dashboard? (Saldo bertambah)
+                        </label>
+                    </div>
+
+                    <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold mt-2">Simpan Pembayaran</button>
+                </form>
+            </div>
+        </div>
+    );
+}
 
 // --- ANALYTICS VIEW ---
 function AnalyticsView({ transactions, formatIDR }) {
