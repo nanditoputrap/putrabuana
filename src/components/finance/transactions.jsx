@@ -40,6 +40,12 @@ export function TransactionItem({ t, formatIDR, onDelete, onEdit }) {
                 Item: {t.itemName}
               </span>
             )}
+
+            {t.quantity && (
+              <span className="px-1.5 py-0.5 rounded-md font-bold border bg-slate-50 text-slate-600 border-slate-200">
+                Qty: {t.quantity} {t.unitName || 'item'}
+              </span>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-[10px] text-gray-400 mt-1.5 font-medium">

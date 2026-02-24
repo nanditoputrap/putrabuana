@@ -11,6 +11,7 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
   const [description, setDescription] = useState('');
   const [vendorId, setVendorId] = useState('');
   const [itemId, setItemId] = useState('');
+  const [quantity, setQuantity] = useState('1');
   const [linkedIncomeId, setLinkedIncomeId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -26,7 +27,9 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
   );
   const selectedIncome = linkableIncomeTransactions.find((transaction) => transaction.id === linkedIncomeId);
   const autoPayableAmount = selectedIncome
-    ? Math.max(Number(selectedIncome.amount || 0) - Number(selectedIncome.itemPriceDiff || 0), 0)
+    ? selectedIncome.vendorUnitCost && selectedIncome.quantity
+      ? Math.max(Number(selectedIncome.vendorUnitCost) * Number(selectedIncome.quantity), 0)
+      : Math.max(Number(selectedIncome.amount || 0) - Number(selectedIncome.itemPriceDiff || 0), 0)
     : 0;
 
   const setAmountFromNumber = (value) => {
@@ -34,6 +37,8 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
     setAmount(normalized);
     setDisplayAmount(normalized ? new Intl.NumberFormat('id-ID').format(normalized) : '');
   };
+
+  const parseQuantity = (value) => Math.max(1, parseInt(value || '1', 10) || 1);
 
   // Fungsi untuk menangani input angka dengan format ribuan
   const handleAmountChange = (e) => {
@@ -55,14 +60,29 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
     setAmount('');
     setDisplayAmount('');
     setItemId('');
+    setQuantity('1');
     setLinkedIncomeId('');
   };
 
   const handleIncomeItemChange = (nextItemId) => {
     setItemId(nextItemId);
+    const item = items.find((it) => it.id === nextItemId);
+    if (item?.customerUnitPrice) {
+      const total = parseQuantity(quantity) * Number(item.customerUnitPrice);
+      setAmountFromNumber(total);
+    }
     if (!description) {
-      const item = items.find((it) => it.id === nextItemId);
       if (item) setDescription(item.name);
+    }
+  };
+
+  const handleQuantityChange = (nextQuantity) => {
+    const raw = nextQuantity.replace(/\D/g, '');
+    setQuantity(raw || '1');
+    const qty = parseQuantity(raw || '1');
+    if (type === 'income' && selectedItem?.customerUnitPrice) {
+      const total = qty * Number(selectedItem.customerUnitPrice);
+      setAmountFromNumber(total);
     }
   };
 
@@ -77,8 +97,11 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
     const income = linkableIncomeTransactions.find((transaction) => transaction.id === incomeId);
     if (!income) return;
 
-    const difference = Number(income.itemPriceDiff || 0);
-    const payable = Math.max(Number(income.amount || 0) - difference, 0);
+    const qty = parseQuantity(String(income.quantity || 1));
+    setQuantity(String(qty));
+    const payable = income.vendorUnitCost
+      ? Math.max(Number(income.vendorUnitCost || 0) * qty, 0)
+      : Math.max(Number(income.amount || 0) - Number(income.itemPriceDiff || 0), 0);
     setAmountFromNumber(payable);
     setDate(income.date || date);
 
@@ -107,6 +130,10 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
         itemId: type === 'income' ? (selectedItem?.id || null) : (selectedIncome?.itemId || null),
         itemName: type === 'income' ? (selectedItem?.name || null) : (selectedIncome?.itemName || null),
         itemPriceDiff: type === 'income' ? Number(selectedItem?.priceDiff || 0) : Number(selectedIncome?.itemPriceDiff || 0),
+        quantity: type === 'income' ? parseQuantity(quantity) : Number(selectedIncome?.quantity || 1),
+        unitName: type === 'income' ? (selectedItem?.unitName || null) : (selectedIncome?.unitName || null),
+        customerUnitPrice: type === 'income' ? Number(selectedItem?.customerUnitPrice || 0) : Number(selectedIncome?.customerUnitPrice || 0),
+        vendorUnitCost: type === 'income' ? Number(selectedItem?.vendorUnitCost || 0) : Number(selectedIncome?.vendorUnitCost || 0),
         linkedIncomeId: type === 'expense' ? (selectedIncome?.id || null) : null,
         linkedIncomeAmount: type === 'expense' ? Number(selectedIncome?.amount || 0) : null,
         payableToVendor: type === 'expense' ? parseFloat(amount) : null,
@@ -118,6 +145,7 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
     setDescription('');
     setVendorId('');
     setItemId('');
+    setQuantity('1');
     setLinkedIncomeId('');
     setIsSubmitting(false);
   };
@@ -149,7 +177,10 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
                 <option value="">-- Pilih Item --</option>
                 {items.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.name} (Selisih {formatIDR(item.priceDiff || 0)})
+                    {item.name}
+                    {item.customerUnitPrice
+                      ? ` (${formatIDR(item.customerUnitPrice)} / ${item.unitName || 'item'})`
+                      : ` (Selisih ${formatIDR(item.priceDiff || 0)})`}
                   </option>
                 ))}
               </select>
@@ -157,6 +188,23 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
                 <Store size={16} />
               </div>
             </div>
+            {selectedItem?.customerUnitPrice && (
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider ml-1">
+                  Qty ({selectedItem.unitName || 'item'})
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={quantity}
+                  onChange={(e) => handleQuantityChange(e.target.value)}
+                  className="w-full px-4 py-3 bg-white/50 border border-white/60 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400/50 outline-none transition-all text-sm font-medium text-gray-700 shadow-sm"
+                />
+                <div className="text-[11px] px-2 py-2 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-700">
+                  Harga customer: <b>{formatIDR(Number(selectedItem.customerUnitPrice || 0))}</b> × {parseQuantity(quantity)} {selectedItem.unitName || 'item'} = <b>{formatIDR(Number(selectedItem.customerUnitPrice || 0) * parseQuantity(quantity))}</b>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -171,13 +219,22 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
               <option value="">-- Pilih Transaksi Masuk --</option>
               {linkableIncomeTransactions.map((income) => (
                 <option key={income.id} value={income.id}>
-                  {income.itemName || income.description} - {formatIDR(income.amount || 0)}
+                  {income.itemName || income.description}
+                  {income.quantity ? ` (${income.quantity} ${income.unitName || 'item'})` : ''}
+                  {' - '}
+                  {formatIDR(income.amount || 0)}
                 </option>
               ))}
             </select>
             {selectedIncome && (
               <div className="text-[11px] px-2 py-2 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-700">
-                Harga masuk: <b>{formatIDR(selectedIncome.amount || 0)}</b> • Selisih item: <b>{formatIDR(selectedIncome.itemPriceDiff || 0)}</b> • Bayar vendor otomatis: <b>{formatIDR(autoPayableAmount)}</b>
+                Harga masuk: <b>{formatIDR(selectedIncome.amount || 0)}</b>
+                {selectedIncome.vendorUnitCost ? (
+                  <> • Vendor: <b>{formatIDR(selectedIncome.vendorUnitCost || 0)}</b> × <b>{selectedIncome.quantity || 1}</b> {selectedIncome.unitName || 'item'}</>
+                ) : (
+                  <> • Selisih item: <b>{formatIDR(selectedIncome.itemPriceDiff || 0)}</b></>
+                )}
+                {' • '}Bayar vendor otomatis: <b>{formatIDR(autoPayableAmount)}</b>
               </div>
             )}
           </div>
