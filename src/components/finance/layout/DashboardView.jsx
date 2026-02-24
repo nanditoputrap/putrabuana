@@ -3,8 +3,10 @@ import { Search } from 'lucide-react';
 import { VIEWS } from '../../../constants/app';
 import { SummaryCardGlass, TransactionFormGlass } from '../dashboard';
 import { TransactionItem } from '../transactions';
+import { NotesCard } from './NotesCard';
 
 function DashboardView({
+  appUser,
   dashboardSearch,
   filteredDashboardTransactions,
   formatIDR,
@@ -45,46 +47,52 @@ function DashboardView({
         </div>
 
         <div className="lg:col-span-8">
-          <div className="bg-white/40 backdrop-blur-xl rounded-3xl shadow-xl border border-white/50 overflow-hidden relative">
-            <div className="p-6 border-b border-white/30 flex flex-col md:flex-row justify-between items-start md:items-center bg-white/20 gap-3">
-              <h2 className="font-bold text-gray-800 flex items-center gap-2.5 text-lg">Transaksi Terkini</h2>
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+            <div className="xl:col-span-8 bg-white/40 backdrop-blur-xl rounded-3xl shadow-xl border border-white/50 overflow-hidden relative">
+              <div className="p-6 border-b border-white/30 flex flex-col md:flex-row justify-between items-start md:items-center bg-white/20 gap-3">
+                <h2 className="font-bold text-gray-800 flex items-center gap-2.5 text-lg">Transaksi Terkini</h2>
 
-              <div className="flex items-center gap-2 w-full md:w-auto">
-                <div className="relative group flex-1 md:flex-none">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
-                  <input
-                    type="text"
-                    placeholder="Cari..."
-                    value={dashboardSearch}
-                    onChange={(event) => onSearchChange(event.target.value)}
-                    className="w-full md:w-40 pl-9 pr-3 py-1.5 bg-white/50 border border-white/60 rounded-xl text-xs font-medium focus:bg-white focus:ring-2 focus:ring-indigo-400/20 outline-none transition-all"
-                  />
+                <div className="flex items-center gap-2 w-full md:w-auto">
+                  <div className="relative group flex-1 md:flex-none">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
+                    <input
+                      type="text"
+                      placeholder="Cari..."
+                      value={dashboardSearch}
+                      onChange={(event) => onSearchChange(event.target.value)}
+                      className="w-full md:w-40 pl-9 pr-3 py-1.5 bg-white/50 border border-white/60 rounded-xl text-xs font-medium focus:bg-white focus:ring-2 focus:ring-indigo-400/20 outline-none transition-all"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => setCurrentView(VIEWS.HISTORY)}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 px-3 py-1.5 rounded-lg transition-colors border border-indigo-100 whitespace-nowrap"
+                  >
+                    Lihat Semua
+                  </button>
                 </div>
+              </div>
 
-                <button
-                  onClick={() => setCurrentView(VIEWS.HISTORY)}
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 px-3 py-1.5 rounded-lg transition-colors border border-indigo-100 whitespace-nowrap"
-                >
-                  Lihat Semua
-                </button>
+              <div className="max-h-[500px] overflow-y-auto custom-scrollbar p-3 space-y-3">
+                {filteredDashboardTransactions.map((transaction) => (
+                  <TransactionItem
+                    key={transaction.id}
+                    t={transaction}
+                    formatIDR={formatIDR}
+                    onDelete={promptDeleteTransaction}
+                    onEdit={onEditTransaction}
+                  />
+                ))}
+                {filteredDashboardTransactions.length === 0 && (
+                  <div className="py-12 text-center text-gray-400 text-sm">
+                    {dashboardSearch ? 'Tidak ada data yang cocok.' : 'Belum ada transaksi'}
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="max-h-[500px] overflow-y-auto custom-scrollbar p-3 space-y-3">
-              {filteredDashboardTransactions.map((transaction) => (
-                <TransactionItem
-                  key={transaction.id}
-                  t={transaction}
-                  formatIDR={formatIDR}
-                  onDelete={promptDeleteTransaction}
-                  onEdit={onEditTransaction}
-                />
-              ))}
-              {filteredDashboardTransactions.length === 0 && (
-                <div className="py-12 text-center text-gray-400 text-sm">
-                  {dashboardSearch ? 'Tidak ada data yang cocok.' : 'Belum ada transaksi'}
-                </div>
-              )}
+            <div className="xl:col-span-4">
+              <NotesCard key={appUser?.name || 'default'} appUser={appUser} />
             </div>
           </div>
         </div>

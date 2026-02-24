@@ -110,6 +110,7 @@ export default function App() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-8">
         {currentView === VIEWS.DASHBOARD && (
           <DashboardView
+            appUser={appUser}
             dashboardSearch={dashboardSearch}
             filteredDashboardTransactions={filteredDashboardTransactions}
             formatIDR={formatIDR}

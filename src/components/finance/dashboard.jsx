@@ -15,6 +15,11 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
   const [linkedIncomeId, setLinkedIncomeId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const hasUnitPricing = (item) =>
+    Boolean(
+      item && (item.usesUnitPricing === true || (item.usesUnitPricing !== false && (item.customerUnitPrice || item.vendorUnitCost))),
+    );
+
   const selectedItem = items.find((item) => item.id === itemId);
   const incomeTransactions = transactions.filter((transaction) => transaction.type === 'income');
   const alreadyLinkedIncomeIds = new Set(
@@ -38,7 +43,15 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
     setDisplayAmount(normalized ? new Intl.NumberFormat('id-ID').format(normalized) : '');
   };
 
-  const parseQuantity = (value) => Math.max(1, parseInt(value || '1', 10) || 1);
+  const parseQuantity = (value) => {
+    const parsed = Number(String(value || '1').replace(',', '.'));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  };
+  const formatQuantityDisplay = (value) => {
+    const qty = Number(value || 0);
+    if (!Number.isFinite(qty) || qty <= 0) return '1';
+    return Number.isInteger(qty) ? String(qty) : String(Number(qty.toFixed(2)));
+  };
 
   // Fungsi untuk menangani input angka dengan format ribuan
   const handleAmountChange = (e) => {
@@ -50,8 +63,14 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
     if (rawValue) {
         const formatted = new Intl.NumberFormat('id-ID').format(rawValue);
         setDisplayAmount(formatted);
+
+        if (type === 'income' && hasUnitPricing(selectedItem) && Number(selectedItem?.customerUnitPrice || 0) > 0) {
+          const qty = Number(rawValue) / Number(selectedItem.customerUnitPrice);
+          setQuantity(formatQuantityDisplay(qty));
+        }
     } else {
         setDisplayAmount('');
+        if (type === 'income' && hasUnitPricing(selectedItem)) setQuantity('1');
     }
   };
 
@@ -67,9 +86,11 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
   const handleIncomeItemChange = (nextItemId) => {
     setItemId(nextItemId);
     const item = items.find((it) => it.id === nextItemId);
-    if (item?.customerUnitPrice) {
+    if (hasUnitPricing(item) && item?.customerUnitPrice) {
       const total = parseQuantity(quantity) * Number(item.customerUnitPrice);
       setAmountFromNumber(total);
+    } else {
+      setQuantity('1');
     }
     if (!description) {
       if (item) setDescription(item.name);
@@ -77,10 +98,12 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
   };
 
   const handleQuantityChange = (nextQuantity) => {
-    const raw = nextQuantity.replace(/\D/g, '');
-    setQuantity(raw || '1');
-    const qty = parseQuantity(raw || '1');
-    if (type === 'income' && selectedItem?.customerUnitPrice) {
+    const raw = nextQuantity.replace(',', '.');
+    const numeric = Number(raw);
+    const safeQty = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+    setQuantity(formatQuantityDisplay(safeQty));
+    const qty = safeQty;
+    if (type === 'income' && hasUnitPricing(selectedItem) && selectedItem?.customerUnitPrice) {
       const total = qty * Number(selectedItem.customerUnitPrice);
       setAmountFromNumber(total);
     }
@@ -175,10 +198,10 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
                 className="w-full px-4 py-3 bg-white/50 border border-white/60 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400/50 outline-none transition-all text-sm font-medium text-gray-700 appearance-none shadow-sm cursor-pointer"
               >
                 <option value="">-- Pilih Item --</option>
-                {items.map((item) => (
+              {items.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
-                    {item.customerUnitPrice
+                    {hasUnitPricing(item) && item.customerUnitPrice
                       ? ` (${formatIDR(item.customerUnitPrice)} / ${item.unitName || 'item'})`
                       : ` (Selisih ${formatIDR(item.priceDiff || 0)})`}
                   </option>
@@ -188,20 +211,21 @@ export function TransactionFormGlass({ onAdd, vendors = [], items = [], transact
                 <Store size={16} />
               </div>
             </div>
-            {selectedItem?.customerUnitPrice && (
+            {hasUnitPricing(selectedItem) && selectedItem?.customerUnitPrice && (
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider ml-1">
                   Qty ({selectedItem.unitName || 'item'})
                 </label>
                 <input
                   type="number"
-                  min="1"
+                  min="0.01"
+                  step="0.01"
                   value={quantity}
                   onChange={(e) => handleQuantityChange(e.target.value)}
                   className="w-full px-4 py-3 bg-white/50 border border-white/60 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400/50 outline-none transition-all text-sm font-medium text-gray-700 shadow-sm"
                 />
                 <div className="text-[11px] px-2 py-2 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-700">
-                  Harga customer: <b>{formatIDR(Number(selectedItem.customerUnitPrice || 0))}</b> × {parseQuantity(quantity)} {selectedItem.unitName || 'item'} = <b>{formatIDR(Number(selectedItem.customerUnitPrice || 0) * parseQuantity(quantity))}</b>
+                  Harga customer: <b>{formatIDR(Number(selectedItem.customerUnitPrice || 0))}</b> × {Number(quantity || 1)} {selectedItem.unitName || 'item'} = <b>{formatIDR(Number(selectedItem.customerUnitPrice || 0) * Number(quantity || 1))}</b>
                 </div>
               </div>
             )}
