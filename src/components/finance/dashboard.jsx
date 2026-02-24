@@ -9,18 +9,41 @@ export function TransactionFormGlass({ onAdd, vendors = [], transactions = [] })
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
   const [vendorId, setVendorId] = useState('');
-  const [linkedIncomeId, setLinkedIncomeId] = useState('');
+  const [linkedIncomeIds, setLinkedIncomeIds] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const incomeTransactions = transactions.filter((transaction) => transaction.type === 'income');
   const alreadyLinkedIncomeIds = new Set(
     transactions
-      .filter((transaction) => transaction.type === 'expense' && transaction.linkedIncomeId)
-      .map((transaction) => transaction.linkedIncomeId),
+      .filter((transaction) => transaction.type === 'expense')
+      .flatMap((transaction) =>
+        Array.isArray(transaction.linkedIncomeIds)
+          ? transaction.linkedIncomeIds
+          : transaction.linkedIncomeId
+            ? [transaction.linkedIncomeId]
+            : [],
+      ),
   );
   const selectableIncomeTransactions = incomeTransactions.filter(
     (transaction) => transaction.description && !alreadyLinkedIncomeIds.has(transaction.id),
   );
+
+  const selectedLinkedIncomes = selectableIncomeTransactions.filter((transaction) =>
+    linkedIncomeIds.includes(transaction.id),
+  );
+  const linkedIncomeTotal = selectedLinkedIncomes.reduce(
+    (total, transaction) => total + Number(transaction.amount || 0),
+    0,
+  );
+  const currentExpenseAmount = Number(amount || 0);
+  const previewMargin = linkedIncomeTotal - currentExpenseAmount;
+
+  const getMarginStatus = (value) => {
+    if (value > 0) return { label: 'Surplus', className: 'text-emerald-700 bg-emerald-50 border-emerald-200' };
+    if (value < 0) return { label: 'Rugi', className: 'text-rose-700 bg-rose-50 border-rose-200' };
+    return { label: 'Impas', className: 'text-slate-700 bg-slate-50 border-slate-200' };
+  };
+  const marginStatus = getMarginStatus(previewMargin);
 
   const handleAmountChange = (event) => {
     const rawValue = event.target.value.replace(/\D/g, '');
@@ -30,17 +53,28 @@ export function TransactionFormGlass({ onAdd, vendors = [], transactions = [] })
 
   const handleTypeChange = (nextType) => {
     setType(nextType);
-    setLinkedIncomeId('');
+    setLinkedIncomeIds([]);
   };
 
-  const handleLinkedIncomeChange = (incomeId) => {
-    setLinkedIncomeId(incomeId);
-    const income = selectableIncomeTransactions.find((transaction) => transaction.id === incomeId);
-    if (!income) return;
+  const toggleLinkedIncome = (incomeId) => {
+    setLinkedIncomeIds((prev) => {
+      const exists = prev.includes(incomeId);
+      const next = exists ? prev.filter((id) => id !== incomeId) : [...prev, incomeId];
 
-    if (!description) {
-      setDescription(income.description);
-    }
+      if (!description && next.length > 0) {
+        const names = selectableIncomeTransactions
+          .filter((transaction) => next.includes(transaction.id))
+          .map((transaction) => transaction.description)
+          .filter(Boolean);
+        setDescription(names.join(', '));
+      }
+
+      if (next.length === 0 && description.includes(', ')) {
+        setDescription('');
+      }
+
+      return next;
+    });
   };
 
   const handleSubmit = async (event) => {
@@ -49,7 +83,9 @@ export function TransactionFormGlass({ onAdd, vendors = [], transactions = [] })
 
     setIsSubmitting(true);
     const selectedVendor = vendors.find((vendor) => vendor.id === vendorId);
-    const selectedIncome = selectableIncomeTransactions.find((transaction) => transaction.id === linkedIncomeId);
+    const linkedDescriptions = selectedLinkedIncomes
+      .map((transaction) => transaction.description)
+      .filter(Boolean);
 
     await onAdd({
       type,
@@ -59,15 +95,22 @@ export function TransactionFormGlass({ onAdd, vendors = [], transactions = [] })
       description: description || (type === 'income' ? 'Pemasukan' : 'Pengeluaran'),
       vendorId: vendorId || null,
       vendorName: selectedVendor ? selectedVendor.name : null,
-      linkedIncomeId: type === 'expense' ? selectedIncome?.id || null : null,
-      linkedIncomeDescription: type === 'expense' ? selectedIncome?.description || null : null,
+      linkedIncomeId: type === 'expense' ? selectedLinkedIncomes[0]?.id || null : null,
+      linkedIncomeIds: type === 'expense' ? selectedLinkedIncomes.map((transaction) => transaction.id) : [],
+      linkedIncomeDescription:
+        type === 'expense'
+          ? linkedDescriptions.length > 0
+            ? linkedDescriptions.join(', ')
+            : null
+          : null,
+      linkedIncomeAmountTotal: type === 'expense' ? linkedIncomeTotal : null,
     });
 
     setAmount('');
     setDisplayAmount('');
     setDescription('');
     setVendorId('');
-    setLinkedIncomeId('');
+    setLinkedIncomeIds([]);
     setIsSubmitting(false);
   };
 
@@ -95,20 +138,39 @@ export function TransactionFormGlass({ onAdd, vendors = [], transactions = [] })
         {type === 'expense' && (
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider ml-1">
-              Pilih Dari Pemasukan (Keterangan)
+              Pilih Dari Pemasukan (Bisa Lebih Dari Satu)
             </label>
-            <select
-              value={linkedIncomeId}
-              onChange={(event) => handleLinkedIncomeChange(event.target.value)}
-              className="w-full px-4 py-3 bg-white/50 border border-white/60 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400/50 outline-none transition-all text-sm font-medium text-gray-700 appearance-none shadow-sm cursor-pointer"
-            >
-              <option value="">-- Pilih Keterangan Pemasukan --</option>
+            <div className="max-h-44 overflow-y-auto space-y-2 p-2 rounded-xl border border-white/60 bg-white/35">
+              {selectableIncomeTransactions.length === 0 && (
+                <p className="text-xs text-gray-500 px-2 py-1">Tidak ada pemasukan yang bisa dipilih.</p>
+              )}
               {selectableIncomeTransactions.map((income) => (
-                <option key={income.id} value={income.id}>
-                  {income.description} - Rp {new Intl.NumberFormat('id-ID').format(income.amount || 0)}
-                </option>
+                <label
+                  key={income.id}
+                  className="flex items-start gap-2 p-2 rounded-lg border border-white/60 bg-white/60 hover:bg-white/80 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={linkedIncomeIds.includes(income.id)}
+                    onChange={() => toggleLinkedIncome(income.id)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-xs text-gray-700">
+                    <b>{income.description}</b> - Rp {new Intl.NumberFormat('id-ID').format(income.amount || 0)}
+                  </span>
+                </label>
               ))}
-            </select>
+            </div>
+            {linkedIncomeIds.length > 0 && (
+              <div className="p-2 rounded-lg border border-indigo-100 bg-indigo-50/70 text-xs text-indigo-700 space-y-1">
+                <div>
+                  Total pemasukan terpilih: <b>Rp {new Intl.NumberFormat('id-ID').format(linkedIncomeTotal)}</b>
+                </div>
+                <div className={`inline-flex px-2 py-0.5 rounded-full border font-bold ${marginStatus.className}`}>
+                  Preview Selisih: {previewMargin >= 0 ? '+' : '-'}Rp {new Intl.NumberFormat('id-ID').format(Math.abs(previewMargin))} ({marginStatus.label})
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -78,6 +78,13 @@ export default function App() {
   const paymentLookup = useMemo(() => {
     const incomeStatusById = {};
     const linkedIncomeDescriptionByExpenseId = {};
+    const linkedIncomeAmountTotalByExpenseId = {};
+    const marginByExpenseId = {};
+    const incomeById = Object.fromEntries(
+      transactions
+        .filter((transaction) => transaction.type === 'income')
+        .map((transaction) => [transaction.id, transaction]),
+    );
 
     transactions
       .filter((transaction) => transaction.type === 'income')
@@ -86,17 +93,44 @@ export default function App() {
       });
 
     transactions
-      .filter((transaction) => transaction.type === 'expense' && transaction.linkedIncomeId)
+      .filter((transaction) => transaction.type === 'expense')
       .forEach((expense) => {
-        const linkedIncome = transactions.find((transaction) => transaction.id === expense.linkedIncomeId);
-        if (incomeStatusById[expense.linkedIncomeId]) {
-          incomeStatusById[expense.linkedIncomeId].paid = true;
-        }
+        const legacyIncomeId = expense.linkedIncomeId;
+        const linkedIncomeIds = Array.isArray(expense.linkedIncomeIds)
+          ? expense.linkedIncomeIds
+          : legacyIncomeId
+            ? [legacyIncomeId]
+            : [];
+
+        linkedIncomeIds.forEach((incomeId) => {
+          if (incomeStatusById[incomeId]) {
+            incomeStatusById[incomeId].paid = true;
+          }
+        });
+
+        const linkedIncomes = linkedIncomeIds
+          .map((incomeId) => incomeById[incomeId])
+          .filter(Boolean);
+        const descriptions = linkedIncomes.map((income) => income.description).filter(Boolean);
+        const incomeTotal = linkedIncomes.reduce(
+          (total, income) => total + Number(income.amount || 0),
+          0,
+        );
+
         linkedIncomeDescriptionByExpenseId[expense.id] =
-          linkedIncome?.description || expense.linkedIncomeDescription || null;
+          descriptions.length > 0
+            ? descriptions.join(', ')
+            : expense.linkedIncomeDescription || null;
+        linkedIncomeAmountTotalByExpenseId[expense.id] = incomeTotal;
+        marginByExpenseId[expense.id] = incomeTotal - Number(expense.amount || 0);
       });
 
-    return { incomeStatusById, linkedIncomeDescriptionByExpenseId };
+    return {
+      incomeStatusById,
+      linkedIncomeAmountTotalByExpenseId,
+      linkedIncomeDescriptionByExpenseId,
+      marginByExpenseId,
+    };
   }, [transactions]);
 
   const loading = authLoading || (Boolean(user) && dataLoading);

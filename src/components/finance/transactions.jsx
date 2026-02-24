@@ -5,6 +5,31 @@ export function TransactionItem({ t, paymentLookup, formatIDR, onDelete, onEdit 
   const incomeStatus = paymentLookup?.incomeStatusById?.[t.id];
   const linkedIncomeDescription =
     paymentLookup?.linkedIncomeDescriptionByExpenseId?.[t.id] || t.linkedIncomeDescription;
+  const linkedIncomeAmountTotal = Number(
+    paymentLookup?.linkedIncomeAmountTotalByExpenseId?.[t.id] || t.linkedIncomeAmountTotal || 0,
+  );
+  const marginValue =
+    t.type === 'expense'
+      ? Number(
+          paymentLookup?.marginByExpenseId?.[t.id] ??
+            (linkedIncomeAmountTotal ? linkedIncomeAmountTotal - Number(t.amount || 0) : 0),
+        )
+      : 0;
+  const marginBadge =
+    marginValue > 0
+      ? {
+          label: `Surplus +${formatIDR(marginValue)}`,
+          className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        }
+      : marginValue < 0
+        ? {
+            label: `Rugi ${formatIDR(Math.abs(marginValue))}`,
+            className: 'bg-rose-50 text-rose-700 border-rose-200',
+          }
+        : {
+            label: 'Impas',
+            className: 'bg-slate-50 text-slate-700 border-slate-200',
+          };
 
   return (
     <div className="group p-4 bg-white/60 hover:bg-white/90 backdrop-blur-sm rounded-2xl border border-white/60 hover:border-white shadow-sm hover:shadow-lg transition-all duration-300 flex items-center justify-between gap-4">
@@ -60,6 +85,12 @@ export function TransactionItem({ t, paymentLookup, formatIDR, onDelete, onEdit 
             {t.type === 'expense' && linkedIncomeDescription && (
               <span className="px-1.5 py-0.5 rounded-md font-bold border bg-blue-50 text-blue-700 border-blue-200">
                 Bayar: {linkedIncomeDescription}
+              </span>
+            )}
+
+            {t.type === 'expense' && linkedIncomeDescription && (
+              <span className={`px-1.5 py-0.5 rounded-md font-bold border ${marginBadge.className}`}>
+                {marginBadge.label}
               </span>
             )}
           </div>
