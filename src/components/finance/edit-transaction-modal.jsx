@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 
-export function EditTransactionModal({ transaction, onClose, onSave, vendors }) {
+export function EditTransactionModal({ transaction, onClose, onSave, vendors, items = [] }) {
   const [amount, setAmount] = useState(transaction.amount);
   const [date, setDate] = useState(transaction.date);
   const [description, setDescription] = useState(transaction.description || '');
   const [type, setType] = useState(transaction.type);
   const [vendorId, setVendorId] = useState(transaction.vendorId || '');
+  const [itemId, setItemId] = useState(transaction.itemId || '');
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setIsSaving(true);
     const selectedVendor = vendors.find((vendor) => vendor.id === vendorId);
+    const selectedItem = items.find((item) => item.id === itemId);
 
     await onSave(transaction.id, {
       amount: parseFloat(amount),
@@ -22,6 +24,9 @@ export function EditTransactionModal({ transaction, onClose, onSave, vendors }) 
       category: type === 'income' ? 'Pemasukan' : 'Pengeluaran',
       vendorId: vendorId || null,
       vendorName: selectedVendor ? selectedVendor.name : null,
+      itemId: itemId || null,
+      itemName: selectedItem ? selectedItem.name : null,
+      itemPriceDiff: selectedItem ? Number(selectedItem.priceDiff || 0) : null,
     });
     setIsSaving(false);
   };
@@ -68,6 +73,22 @@ export function EditTransactionModal({ transaction, onClose, onSave, vendors }) 
                     {vendor.name}
                   </option>
                 ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-gray-500 uppercase ml-1">Item</label>
+            <select
+              value={itemId}
+              onChange={(event) => setItemId(event.target.value)}
+              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-200 outline-none text-sm appearance-none"
+            >
+              <option value="">-- Tidak Ada --</option>
+              {items.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
             </select>
           </div>
 

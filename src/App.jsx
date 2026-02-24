@@ -248,6 +248,7 @@ export default function App() {
           <EditTransactionModal
             transaction={editingTransaction}
             vendors={vendors}
+            items={items}
             onClose={() => setEditingTransaction(null)}
             onSave={handleUpdateTransaction}
           />
