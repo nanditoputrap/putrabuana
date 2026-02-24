@@ -75,6 +75,29 @@ export default function App() {
     () => filterDashboardTransactions(transactions, dashboardSearch),
     [dashboardSearch, transactions],
   );
+  const paymentLookup = useMemo(() => {
+    const incomeStatusById = {};
+    const linkedIncomeDescriptionByExpenseId = {};
+
+    transactions
+      .filter((transaction) => transaction.type === 'income')
+      .forEach((income) => {
+        incomeStatusById[income.id] = { paid: false };
+      });
+
+    transactions
+      .filter((transaction) => transaction.type === 'expense' && transaction.linkedIncomeId)
+      .forEach((expense) => {
+        const linkedIncome = transactions.find((transaction) => transaction.id === expense.linkedIncomeId);
+        if (incomeStatusById[expense.linkedIncomeId]) {
+          incomeStatusById[expense.linkedIncomeId].paid = true;
+        }
+        linkedIncomeDescriptionByExpenseId[expense.id] =
+          linkedIncome?.description || expense.linkedIncomeDescription || null;
+      });
+
+    return { incomeStatusById, linkedIncomeDescriptionByExpenseId };
+  }, [transactions]);
 
   const loading = authLoading || (Boolean(user) && dataLoading);
 
@@ -121,7 +144,7 @@ export default function App() {
             promptDeleteTransaction={promptDeleteTransaction}
             setCurrentView={setCurrentView}
             summary={summary}
-            items={items}
+            paymentLookup={paymentLookup}
             transactions={transactions}
             vendors={vendors}
           />
@@ -137,6 +160,7 @@ export default function App() {
           <Suspense fallback={<ContentLoading />}>
             <HistoryView
               transactions={transactions}
+              paymentLookup={paymentLookup}
               formatIDR={formatIDR}
               onDelete={promptDeleteTransaction}
               onEdit={setEditingTransaction}

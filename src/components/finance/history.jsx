@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ArrowRight, Calendar, Search } from 'lucide-react';
 import { TransactionItem } from './transactions';
 
-export function HistoryView({ transactions, formatIDR, onDelete, onEdit }) {
+export function HistoryView({ transactions, paymentLookup, formatIDR, onDelete, onEdit }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
 
@@ -105,6 +105,7 @@ export function HistoryView({ transactions, formatIDR, onDelete, onEdit }) {
                 <TransactionItem
                   key={transaction.id}
                   t={transaction}
+                  paymentLookup={paymentLookup}
                   formatIDR={formatIDR}
                   onDelete={onDelete}
                   onEdit={onEdit}

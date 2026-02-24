@@ -1,7 +1,11 @@
 import React from 'react';
 import { ArrowRight, Pencil, Store, Trash2 } from 'lucide-react';
 
-export function TransactionItem({ t, formatIDR, onDelete, onEdit }) {
+export function TransactionItem({ t, paymentLookup, formatIDR, onDelete, onEdit }) {
+  const incomeStatus = paymentLookup?.incomeStatusById?.[t.id];
+  const linkedIncomeDescription =
+    paymentLookup?.linkedIncomeDescriptionByExpenseId?.[t.id] || t.linkedIncomeDescription;
+
   return (
     <div className="group p-4 bg-white/60 hover:bg-white/90 backdrop-blur-sm rounded-2xl border border-white/60 hover:border-white shadow-sm hover:shadow-lg transition-all duration-300 flex items-center justify-between gap-4">
       <div className="flex items-center gap-4 overflow-hidden">
@@ -41,9 +45,21 @@ export function TransactionItem({ t, formatIDR, onDelete, onEdit }) {
               </span>
             )}
 
-            {t.quantity && (
-              <span className="px-1.5 py-0.5 rounded-md font-bold border bg-slate-50 text-slate-600 border-slate-200">
-                Qty: {t.quantity} {t.unitName || 'item'}
+            {t.type === 'income' && (
+              <span
+                className={`px-1.5 py-0.5 rounded-md font-bold border ${
+                  incomeStatus?.paid
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}
+              >
+                {incomeStatus?.paid ? 'LUNAS' : 'BELUM DIBAYAR'}
+              </span>
+            )}
+
+            {t.type === 'expense' && linkedIncomeDescription && (
+              <span className="px-1.5 py-0.5 rounded-md font-bold border bg-blue-50 text-blue-700 border-blue-200">
+                Bayar: {linkedIncomeDescription}
               </span>
             )}
           </div>

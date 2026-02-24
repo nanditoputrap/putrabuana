@@ -17,7 +17,7 @@ function DashboardView({
   promptDeleteTransaction,
   setCurrentView,
   summary,
-  items,
+  paymentLookup,
   transactions,
   vendors,
 }) {
@@ -40,9 +40,7 @@ function DashboardView({
           <TransactionFormGlass
             onAdd={onAddTransaction}
             vendors={vendors}
-            items={items}
             transactions={transactions}
-            formatIDR={formatIDR}
           />
         </div>
 
@@ -78,6 +76,7 @@ function DashboardView({
                   <TransactionItem
                     key={transaction.id}
                     t={transaction}
+                    paymentLookup={paymentLookup}
                     formatIDR={formatIDR}
                     onDelete={promptDeleteTransaction}
                     onEdit={onEditTransaction}
